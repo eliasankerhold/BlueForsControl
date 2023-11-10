@@ -1,6 +1,6 @@
 from .base import Mode, ADMIN_MODE, OPERATOR_MODE, LEAD_MODE, FOLLOW_MODE, UNAUTHENTICATED_MODE
-from .error_handling import (InsufficientPermissionException, CommunicationError, DeviceError, EmptyValueError,
-                             ValueNotSynchronizedWarning)
+from .error_handling import (InsufficientPermissionError, CommunicationError, DeviceError, EmptyValueError,
+                             ValueStatusWarning)
 from .event_logger import bfc_logger
 
 import requests
@@ -15,6 +15,8 @@ class BlueFClient:
         self.__protocol = 'https://'
         self.NUM_CHANNELS = num_channels
         self.NUM_HEATERS = num_heaters
+        self.__temp_sensors_root_path = 'mapper/temperature_control/sensors'
+        self.__temp_heaters_root_path = 'mapper/temperature_control/heaters'
 
         assert ip != ' '
 
@@ -40,10 +42,11 @@ class BlueFClient:
 
         :param required_permission: Level of permission required for the operation.
         :type required_permission: int
-        :raises InsufficientPermissionException: If the permission of the caller is insufficient for the operation.
+
+        :raises InsufficientPermissionError: If the required permission is not met.
         """
         if self.mode.permission > required_permission:
-            raise InsufficientPermissionException(required_permission, self.mode.permission)
+            raise InsufficientPermissionError(required_permission, self.mode.permission)
 
     def __make_endpoint(self, *args):
         """
@@ -136,22 +139,17 @@ class BlueFClient:
         :type response_json: dict
         :return: Returns True if check passed, False otherwise
         :rtype: bool
+
+        :raises CommunicationError: If response JSON indicates faulty HTTP communication.
+        :raises DeviceError: If control software returned an error code.
         """
-        try:
-            if response_json['status'] == 'ERROR':
-                if response_json['code'] == -1:
-                    raise CommunicationError(endpoint=response_json['endpoint'],
-                                             description=response_json['description'])
-                else:
-                    raise DeviceError(name=response_json['name'], code=response_json['code'],
-                                      description=response_json['description'])
-
+        if response_json['status'] == 'ERROR':
+            if response_json['code'] == -1:
+                raise CommunicationError(endpoint=response_json['endpoint'],
+                                         description=response_json['description'])
             else:
-                return True
-
-        except (CommunicationError, DeviceError) as ex:
-            bfc_logger.error(str(ex))
-            return False
+                raise DeviceError(name=response_json['name'], code=response_json['code'],
+                                  description=response_json['description'])
 
     @staticmethod
     def __handle_value_response(response: dict):
@@ -166,9 +164,9 @@ class BlueFClient:
             bfc_logger.debug(f"Reading content from {response['name']}.")
             if response['type'] is not None:
                 value_dict = response['content']['latest_valid_value']
-                if value_dict['outdated'] or value_dict['status'] != 'SYNCHRONIZED':
-                    raise ValueNotSynchronizedWarning(value_name=response['name'], date=value_dict['date'],
-                                                      outdated=value_dict['outdated'], status=value_dict['status'])
+                if value_dict['outdated'] or value_dict['status'] not in ['SYNCHRONIZED', 'INDEPENDENT']:
+                    raise ValueStatusWarning(value_name=response['name'], date=value_dict['date'],
+                                             outdated=value_dict['outdated'], status=value_dict['status'])
 
                 else:
                     return value_dict['value']
@@ -180,15 +178,16 @@ class BlueFClient:
             bfc_logger.error(f"Failed to handle response json. {str(ex)}")
             return 0
 
-        except ValueNotSynchronizedWarning as ex:
+        except ValueStatusWarning as ex:
             bfc_logger.warning(str(ex))
             return value_dict['value']
 
     # GENERAL SYSTEM FUNCTIONS
     def system_info(self):
-        self.__check_permission(required_permission=UNAUTHENTICATED_MODE.permission)
-        response = self.__generic_request(path=self.__make_endpoint('system'))
-        if self.__json_check(response):
+        try:
+            self.__check_permission(required_permission=UNAUTHENTICATED_MODE.permission)
+            response = self.__generic_request(path=self.__make_endpoint('system'))
+            self.__json_check(response)
             bfc_logger.info(
                 f"{response['system_name']} @{self.__protocol}{self.ip}:{self.port}\n"
                 f"System version {response['system_version']}\n"
@@ -196,10 +195,19 @@ class BlueFClient:
 
             return response['system_name'], response['system_version'], response['api_version']
 
-        else:
+        except (InsufficientPermissionError, DeviceError, CommunicationError) as ex:
+            bfc_logger.error(ex)
             return '', '', ''
 
     # TEMPERATURE CONTROL
-    def set_pid_parameters(self, p: float, i: float, d: float):
-        self.__check_permission(required_permission=OPERATOR_MODE.permission)
-        pass
+    def get_all_enabled_temperature_sensors(self):
+        try:
+            self.__check_permission(required_permission=FOLLOW_MODE.permission)
+            response = self.__generic_request(path=self.__make_endpoint(self.__temp_sensors_root_path))
+            self.__json_check(response)
+            for sensor in response:
+                pass
+
+        except (InsufficientPermissionError, DeviceError, CommunicationError) as ex:
+            bfc_logger.error(ex)
+            return {'sensors': []}
