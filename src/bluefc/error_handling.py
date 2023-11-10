@@ -1,13 +1,14 @@
 from datetime import datetime
 
-class InsufficientPermissionException(Exception):
+
+class InsufficientPermissionError(Exception):
     """
     Raised if the caller of a function does not have the required permission.
     """
 
     def __init__(self, required_permission: int, actual_permission: int):
         """
-        Initializes InsufficientPermissionException.
+        Initializes InsufficientPermissionError.
 
         :param required_permission: Permission required for function execution.
         :type required_permission: int
@@ -48,7 +49,7 @@ class CommunicationError(Exception):
 
     def __init__(self, endpoint: str, description: str, content: dict = None):
         """
-        Initializes CommunicationError
+        Initializes CommunicationError.
 
         :param endpoint: Endpoint with which communication was attempted, including query parameters. API key will be
             protected.
@@ -74,7 +75,7 @@ class EmptyValueError(Exception):
 
     def __init__(self, value_name: str):
         """
-        Initializes EmptyValueError
+        Initializes EmptyValueError.
 
         :param value_name: Name of the value that failed to be accessed.
         :type value_name: str
@@ -83,15 +84,15 @@ class EmptyValueError(Exception):
         super().__init__(self.message)
 
 
-class ValueNotSynchronizedWarning(Exception):
+class ValueStatusWarning(Exception):
     """
-    Raised if the status of a value returned by the control software is not 'SYNCHRONIZED' or the value is flagged as
-    'outdated'.
+    Raised if the status of a value returned by the control software is not 'SYNCHRONIZED', 'INDEPENDENT'
+    or the value is flagged as 'outdated'.
     """
 
     def __init__(self, value_name: str, date: int, outdated: bool, status: str):
         """
-        Initializes ValueNotSynchronizedError.
+        Initializes ValueStatusWarning.
 
         :param value_name: Name of the value that failed to be accessed.
         :type value_name: str
